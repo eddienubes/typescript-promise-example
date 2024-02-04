@@ -1,6 +1,12 @@
-// type PromiseLike<T> = {
-//   then: ThenCallback<T, unknown, unknown>;
-// }
+type PromiseLike<T> = {
+  then: ThenCallback<T, unknown, unknown>;
+}
+
+type SettledPayload<T> = {
+  status: PromiseState;
+  value?: T;
+  reason?: any;
+}
 
 type ThenCallback<T, Resolved, Rejected> = (
   resolveCb?: ResolveCallback<T, Resolved | PromiseLike<Resolved>> | null,
@@ -48,27 +54,60 @@ export class MyPromise<T> {
     });
   }
 
-  static all<T>(iterables: Iterable<T | PromiseLike<T>>): MyPromise<Awaited<T>[]> {
-    const values = [];
+  static allSettled<T>(iterables: Iterable<T | PromiseLike<T>>): MyPromise<SettledPayload<Awaited<T>>[]> {
+    const values: SettledPayload<Awaited<T>>[] = [];
+    let totalSettled = 0;
+    let total = 0;
 
-    return new MyPromise<Awaited<T>[]>((resolve, reject) => {
+    return new MyPromise<SettledPayload<Awaited<T>>[]>((resolve, reject) => {
       for (const item of iterables) {
+        total += 1;
+
         if (!this.isPromise(item)) {
-          values.push(item);
+          totalSettled += 1;
+          values.push({
+            status: PromiseState.FULFILLED,
+            value: item as Awaited<T>
+          });
           continue;
         }
 
         item.then((value) => {
-          console.log('here then', value)
-          values.push(value);
-        }, (err) => {
-          console.log('here', err);
-          reject(err);
+          totalSettled += 1;
         });
-
       }
+    });
+  }
 
-      resolve(values);
+  static all<T>(iterables: Iterable<T | PromiseLike<T>>): MyPromise<Awaited<T>[]> {
+    const values = [];
+    let totalResolved = 0;
+    let total = 0;
+
+    return new MyPromise<Awaited<T>[]>((resolve, reject) => {
+      for (const item of iterables) {
+        total += 1;
+
+        if (!this.isPromise(item)) {
+          totalResolved += 1;
+          values.push(item);
+          continue;
+        }
+
+        // To be replaced later. Will preserve promise order.
+        values.push(null);
+
+        item.then((value) => {
+          values[total - 1] = value;
+          totalResolved += 1;
+
+          // Will never be true unless all promises are fulfilled.
+          // It's due to queueMicrotask() in resolve/reject
+          if (total == totalResolved) {
+            resolve(values);
+          }
+        }, reject);
+      }
     });
   }
 
@@ -184,4 +223,4 @@ class UncaughtPromiseException extends Error {
 
 }
 
-// Promise.all([Promise.resolve(1), 2])
+Promise.allSettled([Promise.resolve(1), 2])

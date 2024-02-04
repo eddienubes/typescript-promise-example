@@ -1,6 +1,9 @@
 {
   "compilerOptions": {
     "module": "NodeNext",
-    "target": "ESNext"
+    "target": "ESNext",
+    "types": [
+      "vitest/globals"
+    ]
   }
 }
