@@ -1,6 +1,6 @@
-type PromiseLike<T> = {
-  then: ThenCallback<T, unknown, unknown>;
-}
+// type PromiseLike<T> = {
+//   then: ThenCallback<T, unknown, unknown>;
+// }
 
 type ThenCallback<T, Resolved, Rejected> = (
   resolveCb?: ResolveCallback<T, Resolved | PromiseLike<Resolved>> | null,
@@ -42,7 +42,35 @@ export class MyPromise<T> {
     });
   }
 
-  static reject
+  static reject<T = never>(value: T): MyPromise<Awaited<T>> {
+    return new MyPromise<Awaited<T>>((resolve, reject) => {
+      reject(value);
+    });
+  }
+
+  static all<T>(iterables: Iterable<T | PromiseLike<T>>): MyPromise<Awaited<T>[]> {
+    const values = [];
+
+    return new MyPromise<Awaited<T>[]>((resolve, reject) => {
+      for (const item of iterables) {
+        if (!this.isPromise(item)) {
+          values.push(item);
+          continue;
+        }
+
+        item.then((value) => {
+          console.log('here then', value)
+          values.push(value);
+        }, (err) => {
+          console.log('here', err);
+          reject(err);
+        });
+
+      }
+
+      resolve(values);
+    });
+  }
 
   then<Resolved = T, Rejected = never>(
     resolveCb?: ResolveCallback<T, Resolved | PromiseLike<Resolved>> | null,
@@ -111,8 +139,7 @@ export class MyPromise<T> {
       if (this.state !== PromiseState.PENDING) {
         return;
       }
-
-      if (this.isPromise(value)) {
+      if (MyPromise.isPromise(value)) {
         value.then(this.resolve.bind(this), this.reject.bind(this));
         return;
       }
@@ -128,8 +155,7 @@ export class MyPromise<T> {
       if (this.state !== PromiseState.PENDING) {
         return;
       }
-
-      if (this.isPromise(value)) {
+      if (MyPromise.isPromise(value)) {
         value.then(this.resolve.bind(this), this.reject.bind(this));
         return;
       }
@@ -144,7 +170,7 @@ export class MyPromise<T> {
     });
   }
 
-  private isPromise<T>(o?: unknown): o is PromiseLike<T> {
+  static isPromise<T>(o?: unknown): o is PromiseLike<T> {
     return !!o && typeof o === 'object' && 'then' in o;
   }
 }
@@ -158,4 +184,4 @@ class UncaughtPromiseException extends Error {
 
 }
 
-Promise.resolve(1)
+// Promise.all([Promise.resolve(1), 2])
