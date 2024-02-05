@@ -1,15 +1,15 @@
 import { MyPromise } from "./MyPromise.js";
 
-const getResolvingPromise = () => new MyPromise((resolve) => {
+const getResolvingPromise = (timeout = 100, value = 'I love my mom!') => new MyPromise((resolve) => {
   setTimeout(() => {
-    resolve('I love my mom!');
-  }, 100)
+    resolve(value);
+  }, timeout);
 });
 
-const getRejectingPromise = () => new MyPromise((resolve, reject) => {
+const getRejectingPromise = (timeout = 100) => new MyPromise((resolve, reject) => {
   setTimeout(() => {
     reject(new Error('Oh, no way!'));
-  }, 100)
+  }, timeout);
 });
 
 describe('My TypeScript Promise', () => {
@@ -144,23 +144,139 @@ describe('My TypeScript Promise', () => {
           });
       })
     });
+
+    it('should handle collections without promises', async () => {
+      const promise = Promise.all([1, 2, 3, 4]);
+
+      await new Promise((resolve) => {
+        promise.then(res => {
+          expect(res).toEqual([1, 2, 3, 4]);
+          resolve(null);
+        });
+      });
+    });
   });
 
   describe('allSettled', () => {
+    it('should settle all primitives', async () => {
+      const myPromise = MyPromise.allSettled(['I love dogs!', 1])
 
+      await new Promise((resolve) => {
+        myPromise.then(res => {
+          expect(res).toEqual([
+            {
+              status: 'fulfilled',
+              value: 'I love dogs!'
+            }, {
+              status: 'fulfilled',
+              value: 1
+            }
+          ])
+          resolve(null);
+        });
+      });
+    });
+
+    it('should settle all promises with rejects', async () => {
+      const myPromise = MyPromise.allSettled([1, Promise.reject(2)])
+
+      await new Promise((resolve) => {
+        myPromise.then(res => {
+          expect(res).toEqual([
+            {
+              status: 'fulfilled',
+              value: 1
+            }, {
+              status: 'rejected',
+              reason: 2
+            }
+          ])
+          resolve(null);
+        });
+      });
+    });
+
+    it('should settle all promises with resolves and rejects', async () => {
+      const myPromise = MyPromise.allSettled([1, Promise.reject(2), Promise.resolve(3)]);
+
+      await new Promise((resolve) => {
+        myPromise.then(res => {
+          expect(res).toEqual([
+            {
+              status: 'fulfilled',
+              value: 1
+            },
+            {
+              status: 'rejected',
+              reason: 2
+            },
+            {
+              status: 'fulfilled',
+              value: 3
+            }
+          ]);
+          resolve(null);
+        });
+      });
+    });
 
   });
-});
 
-// myPromise
-//   .then((res) => {
-//     console.log(res);
-//     return 'changed response 1'
-//   })
-//   .then((res) => {
-//     console.log(res)
-//   })
-//
-// MyPromise.resolve(1).then(res => {
-//   console.log('Resolved with:', res);
-// });
+  describe('race', () => {
+    it('should resolve with first resolve', async () => {
+      const firstResolve = getResolvingPromise(100, 'test');
+      const secondResolve = getResolvingPromise(1000);
+
+      const myPromise = MyPromise.race([firstResolve, secondResolve])
+
+      await new Promise((resolve) => {
+        myPromise.then((res) => {
+          expect(res).toEqual('test');
+          resolve(null);
+        });
+      });
+    });
+
+    it('should reject with first reject', async () => {
+      const firstResolve = getRejectingPromise(100);
+      const secondResolve = getResolvingPromise(1000, 'test');
+
+      const myPromise = MyPromise.race([firstResolve, secondResolve])
+
+      await new Promise((resolve) => {
+        myPromise.catch((err) => {
+          expect(err).toBeInstanceOf(Error);
+          resolve(null);
+        });
+      });
+    });
+
+    it('should resolve with a first non-promise value', async () => {
+      const myPromise = MyPromise.race([1, '2', 3]);
+
+      await new Promise((resolve) => {
+        myPromise.then((res) => {
+          expect(res).toEqual(1);
+          resolve(null);
+        });
+      });
+    });
+  });
+
+  describe('any', () => {
+    it('should resolve with a first fulfilled promise', async () => {
+      const promise = MyPromise.any([]);
+
+      await new Promise((resolve) => {
+        promise
+          .then((res) => {
+            expect(true).toEqual(false);
+          })
+          .catch((err) => {
+
+            resolve(null);
+          });
+      });
+    });
+  });
+});
