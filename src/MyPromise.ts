@@ -2,10 +2,15 @@ type PromiseLike<T> = {
   then: ThenCallback<T, unknown, unknown>;
 }
 
-type SettledPayload<T> = {
-  status: PromiseState;
-  value?: T;
-  reason?: any;
+type AllSettledReturnType<T> = { -readonly [K in keyof T]: PromiseSettled<Awaited<T[K]>> };
+type PromiseSettled<T> = ResolvedPayload<T> | RejectedPayload;
+type ResolvedPayload<T> = {
+  status: 'fulfilled';
+  value: T;
+}
+type RejectedPayload = {
+  status: 'rejected'
+  reason: any;
 }
 
 type ThenCallback<T, Resolved, Rejected> = (
@@ -21,14 +26,10 @@ type PromiseExecutor<T> = (
   reject: (err: any) => void
 ) => void
 
-enum PromiseState {
-  FULFILLED = 'FULFILLED',
-  REJECTED = 'REJECTED',
-  PENDING = 'PENDING'
-}
+type PromiseState = 'fulfilled' | 'rejected' | 'pending';
 
 export class MyPromise<T> {
-  private state = PromiseState.PENDING;
+  private state: PromiseState = 'pending';
   private value?: T | unknown;
   private resolveCbs: ((value: T) => void)[] = []
   private rejectCbs: ((err: unknown) => void)[] = [];
@@ -54,27 +55,54 @@ export class MyPromise<T> {
     });
   }
 
-  static allSettled<T>(iterables: Iterable<T | PromiseLike<T>>): MyPromise<SettledPayload<Awaited<T>>[]> {
-    const values: SettledPayload<Awaited<T>>[] = [];
+  static allSettled<T extends readonly unknown[] | []>(iterables: T): MyPromise<AllSettledReturnType<T>> {
+    const values: PromiseSettled<Awaited<T[number]>>[] = [];
     let totalSettled = 0;
+    let totalPending = 0;
     let total = 0;
 
-    return new MyPromise<SettledPayload<Awaited<T>>[]>((resolve, reject) => {
+    return new MyPromise<AllSettledReturnType<T>>((resolve, reject) => {
       for (const item of iterables) {
         total += 1;
 
         if (!this.isPromise(item)) {
           totalSettled += 1;
           values.push({
-            status: PromiseState.FULFILLED,
+            status: 'fulfilled',
             value: item as Awaited<T>
           });
           continue;
         }
 
+        // To be replaced later. Will preserve promise order.
+        const updatedLength = values.push(null);
+        totalPending += 1;
+
         item.then((value) => {
           totalSettled += 1;
+          values[updatedLength - 1] = {
+            status: 'fulfilled',
+            value: value as Awaited<T>
+          }
+
+          if (totalSettled === total) {
+            resolve(values as AllSettledReturnType<T>);
+          }
+        }, (err) => {
+          totalSettled += 1;
+          values[updatedLength - 1] = {
+            status: 'rejected',
+            reason: err
+          }
+
+          if (totalSettled === total) {
+            resolve(values as AllSettledReturnType<T>);
+          }
         });
+      }
+
+      if (totalPending == 0) {
+        resolve(values as AllSettledReturnType<T>);
       }
     });
   }
@@ -82,6 +110,7 @@ export class MyPromise<T> {
   static all<T>(iterables: Iterable<T | PromiseLike<T>>): MyPromise<Awaited<T>[]> {
     const values = [];
     let totalResolved = 0;
+    let totalPending = 0;
     let total = 0;
 
     return new MyPromise<Awaited<T>[]>((resolve, reject) => {
@@ -95,11 +124,14 @@ export class MyPromise<T> {
         }
 
         // To be replaced later. Will preserve promise order.
-        values.push(null);
+        const updatedLength = values.push(null);
+        totalPending++;
 
         item.then((value) => {
-          values[total - 1] = value;
+          console.log('Total here', total)
+          values[updatedLength - 1] = value;
           totalResolved += 1;
+          totalPending -= 1;
 
           // Will never be true unless all promises are fulfilled.
           // It's due to queueMicrotask() in resolve/reject
@@ -107,6 +139,58 @@ export class MyPromise<T> {
             resolve(values);
           }
         }, reject);
+      }
+
+      if (totalPending == 0) {
+        resolve(values);
+      }
+    });
+  }
+
+  static race<T extends unknown[]>(iterables: T): MyPromise<Awaited<T[number][]>> {
+    return new MyPromise<Awaited<T[number][]>>((resolve, reject) => {
+      for (const item of iterables) {
+        if (!this.isPromise(item)) {
+          resolve(item as Awaited<T>)
+          return;
+        }
+
+        item
+          .then((res) => {
+            resolve(res as Awaited<T>);
+          }, (err) => {
+            reject(err)
+          });
+      }
+    });
+  }
+
+  static any<T extends unknown[]>(iterables: T): MyPromise<Awaited<T>> {
+    return new MyPromise((resolve, reject) => {
+      let total = 0;
+      let totalRejected = 0;
+
+
+      for (const item of iterables) {
+        total += 1;
+
+        if (!this.isPromise(item)) {
+          resolve(item as Awaited<T>);
+          return;
+        }
+
+        item.then((res) => {
+          resolve(res as Awaited<T>);
+        }, (err) => {
+          totalRejected += 1;
+          if (totalRejected == total) {
+            reject(new AggregatePromiseException(err));
+          }
+        });
+      }
+
+      if (total == 0) {
+        reject(new AggregatePromiseException());
       }
     });
   }
@@ -161,13 +245,13 @@ export class MyPromise<T> {
   }
 
   private run(): void {
-    if (this.state == PromiseState.FULFILLED) {
+    if (this.state == 'fulfilled') {
       // We assert here because we're sure the value type is known at this point.
       this.resolveCbs.forEach((cb) => cb(this.value as T));
       this.resolveCbs = [];
     }
 
-    if (this.state == PromiseState.REJECTED) {
+    if (this.state == 'rejected') {
       this.rejectCbs.forEach((cb) => cb(this.value))
       this.rejectCbs = [];
     }
@@ -175,7 +259,7 @@ export class MyPromise<T> {
 
   private resolve(value: T | PromiseLike<T>): void {
     queueMicrotask(() => {
-      if (this.state !== PromiseState.PENDING) {
+      if (this.state !== 'pending') {
         return;
       }
       if (MyPromise.isPromise(value)) {
@@ -184,14 +268,14 @@ export class MyPromise<T> {
       }
 
       this.value = value;
-      this.state = PromiseState.FULFILLED;
+      this.state = 'fulfilled';
       this.run();
     });
   }
 
   private reject(value: T | PromiseLike<T>): void {
     queueMicrotask(() => {
-      if (this.state !== PromiseState.PENDING) {
+      if (this.state !== 'pending') {
         return;
       }
       if (MyPromise.isPromise(value)) {
@@ -204,7 +288,7 @@ export class MyPromise<T> {
       }
 
       this.value = value;
-      this.state = PromiseState.REJECTED;
+      this.state = 'rejected';
       this.run();
     });
   }
@@ -214,7 +298,7 @@ export class MyPromise<T> {
   }
 }
 
-class UncaughtPromiseException extends Error {
+export class UncaughtPromiseException extends Error {
   constructor(message: Error) {
     super(message.message);
 
@@ -223,4 +307,9 @@ class UncaughtPromiseException extends Error {
 
 }
 
-Promise.allSettled([Promise.resolve(1), 2])
+export class AggregatePromiseException extends Error {
+  constructor(err?: any) {
+    super('All promises were rejected');
+    this.cause = err;
+  }
+}
