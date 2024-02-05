@@ -1,4 +1,4 @@
-import { MyPromise } from "./MyPromise.js";
+import { AggregatePromiseException, MyPromise } from "./MyPromise.js";
 
 const getResolvingPromise = (timeout = 100, value = 'I love my mom!') => new MyPromise((resolve) => {
   setTimeout(() => {
@@ -273,8 +273,53 @@ describe('My TypeScript Promise', () => {
             expect(true).toEqual(false);
           })
           .catch((err) => {
-
+            expect(err).toBeInstanceOf(AggregatePromiseException);
             resolve(null);
+          });
+      });
+    });
+
+    it('should reject when passed empty collection', async () => {
+      const promise = MyPromise.any([]);
+
+      await new Promise((resolve) => {
+        promise
+          .then((res) => {
+            expect(true).toEqual(false);
+          })
+          .catch((err) => {
+            expect(err).toBeInstanceOf(AggregatePromiseException);
+            resolve(null);
+          });
+      });
+    });
+
+    it('should reject when all promises reject', async () => {
+      const promise = MyPromise.any([MyPromise.reject(1)]);
+
+      await new Promise((resolve) => {
+        promise
+          .then((res) => {
+            expect(true).toEqual(false);
+          })
+          .catch((err) => {
+            expect(err).toBeInstanceOf(AggregatePromiseException);
+            resolve(null);
+          });
+      });
+    });
+
+    it('should resolve when at least 1 promise resolved', async () => {
+      const promise = MyPromise.any([MyPromise.reject(0), MyPromise.resolve(1), MyPromise.reject(2)]);
+
+      await new Promise((resolve) => {
+        promise
+          .then((res) => {
+            expect(res).toEqual(1);
+            resolve(null);
+          })
+          .catch((err) => {
+            expect(true).toEqual(false);
           });
       });
     });

@@ -128,7 +128,6 @@ export class MyPromise<T> {
         totalPending++;
 
         item.then((value) => {
-          console.log('Total here', total)
           values[updatedLength - 1] = value;
           totalResolved += 1;
           totalPending -= 1;
